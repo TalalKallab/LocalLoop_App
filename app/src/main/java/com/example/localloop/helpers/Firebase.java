@@ -5,19 +5,16 @@ import com.example.localloop.entities.Organizer;
 import com.example.localloop.entities.Participant;
 import com.example.localloop.entities.User;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.firestore.*;
+import com.google.firebase.database.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/* Firebase is needed when logging in to create the welcome message (fetches name + role from database),
-   it is also needed for example when admin wants to view a list of all users (all user info needs to be fetched)
-   The purpose of this class is to modularize it, an instance of it can be invoked as opposed to having to recopy the entire firebase code functionality */
 public class Firebase {
     private static final FirebaseAuth auth = FirebaseAuth.getInstance();
-    private static final FirebaseFirestore db = FirebaseFirestore.getInstance();
+    private static final DatabaseReference db = FirebaseDatabase.getInstance().getReference();
 
     public interface UserFetchCallback {
         void onSuccess(User user);
@@ -28,152 +25,201 @@ public class Firebase {
         return auth;
     }
 
-    public static FirebaseFirestore getDb() {
+    public static DatabaseReference getDb() {
         return db;
     }
 
-    // Fetches the user's information (name and role) using their email as the access point, used during login
     public static void fetchUserByEmail(String email, UserFetchCallback callback) {
-        db.collection("users").whereEqualTo("Email", email).get().addOnSuccessListener(querySnapshot -> {
-            if (!querySnapshot.isEmpty()) {
-                for (QueryDocumentSnapshot doc : querySnapshot) {
-                    String name = doc.getString("Name");
-                    String role = doc.getString("Role");
+        db.child("users").orderByChild("Email").equalTo(email).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        String name = child.child("Name").getValue(String.class);
+                        String role = child.child("Role").getValue(String.class);
 
-                    User user;
-                    switch (role) {
-                        case "Admin":
-                            user = new Admin(name, "admin");
-                            break;
-                        case "Organizer":
-                            user = new Organizer(name);
-                            break;
-                        default:
-                            user = new Participant(name);
-                            break;
+                        User user;
+                        switch (role) {
+                            case "Admin":
+                                user = new Admin(name, "admin");
+                                break;
+                            case "Organizer":
+                                user = new Organizer(name);
+                                break;
+                            default:
+                                user = new Participant(name);
+                                break;
+                        }
+                        callback.onSuccess(user);
+                        return;
                     }
-                    callback.onSuccess(user);
-                    return;
+                } else {
+                    callback.onError("No user found with this email.");
                 }
-            } else {
-                callback.onError("No user found with this email.");
             }
-        }).addOnFailureListener(e -> callback.onError("Error fetching user: " + e.getMessage()));
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Error fetching user: " + error.getMessage());
+            }
+        });
     }
 
-    // This method can only be used when the Firebase instance was invoked by the admin
     public static void fetchAllUsers(UserListCallback callback) {
-        db.collection("users").get().addOnSuccessListener(querySnapshot -> {
-            List<Map<String, String>> userList = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : querySnapshot) {
-                Map<String, String> userMap = new HashMap<>();
-                userMap.put("Name", doc.getString("Name"));
-                userMap.put("Email", doc.getString("Email"));
-                userMap.put("Role", doc.getString("Role"));
-                userList.add(userMap);
+        db.child("users").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                List<Map<String, String>> userList = new ArrayList<>();
+                for (DataSnapshot doc : snapshot.getChildren()) {
+                    Map<String, String> userMap = new HashMap<>();
+                    userMap.put("Name", doc.child("Name").getValue(String.class));
+                    userMap.put("Email", doc.child("Email").getValue(String.class));
+                    userMap.put("Role", doc.child("Role").getValue(String.class));
+                    userList.add(userMap);
+                }
+                callback.onUserListFetched(userList);
             }
-            callback.onUserListFetched(userList);
-        }).addOnFailureListener(e -> {
-            callback.onError("Failed to load users: " + e.getMessage());
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Failed to load users: " + error.getMessage());
+            }
         });
     }
 
     public static void deleteUser(String email, UserFetchCallback callback) {
-        db.collection("users").whereEqualTo("Email", email).get().addOnSuccessListener(querySnapshot -> {
-            if (!querySnapshot.isEmpty()) {
-                for (QueryDocumentSnapshot doc : querySnapshot) {
-                    String docId = doc.getId();
-                    db.collection("users").document(docId).delete().addOnSuccessListener(aVoid -> {
-                        callback.onSuccess(null);
-                    }).addOnFailureListener(e -> {
-                        callback.onError("Error deleting user: " + e.getMessage());
-                    });
-                    break;
+        db.child("users").orderByChild("Email").equalTo(email).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        child.getRef().removeValue()
+                                .addOnSuccessListener(aVoid -> callback.onSuccess(null))
+                                .addOnFailureListener(e -> callback.onError("Error deleting user: " + e.getMessage()));
+                        return;
+                    }
+                } else {
+                    callback.onError("No user found with email: " + email);
                 }
-            } else {
-                callback.onError("No user found with email: " + email);
             }
-        }).addOnFailureListener(e -> {
-            callback.onError("Error finding user: " + e.getMessage());
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Error finding user: " + error.getMessage());
+            }
         });
     }
 
-    //NEW: Disable user by setting "disabled" to true
     public static void disableUser(String email, UserFetchCallback callback) {
-        db.collection("users").whereEqualTo("Email", email).get().addOnSuccessListener(querySnapshot -> {
-            if (!querySnapshot.isEmpty()) {
-                for (QueryDocumentSnapshot doc : querySnapshot) {
-                    doc.getReference().update("disabled", true)
-                            .addOnSuccessListener(aVoid -> {
-                                User user = doc.toObject(User.class);
-                                callback.onSuccess(user);
-                            })
-                            .addOnFailureListener(e -> {
-                                callback.onError("Failed to disable user: " + e.getMessage());
-                            });
-                    break;
+        db.child("users").orderByChild("Email").equalTo(email).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        child.getRef().child("disabled").setValue(true)
+                                .addOnSuccessListener(aVoid -> {
+                                    String name = child.child("Name").getValue(String.class);
+                                    String role = child.child("Role").getValue(String.class);
+                                    User user;
+                                    switch (role) {
+                                        case "Admin":
+                                            user = new Admin(name, "admin");
+                                            break;
+                                        case "Organizer":
+                                            user = new Organizer(name);
+                                            break;
+                                        default:
+                                            user = new Participant(name);
+                                            break;
+                                    }
+                                    callback.onSuccess(user);
+                                })
+                                .addOnFailureListener(e -> callback.onError("Failed to disable user: " + e.getMessage()));
+                        return;
+                    }
+                } else {
+                    callback.onError("No user found with email: " + email);
                 }
-            } else {
-                callback.onError("No user found with email: " + email);
             }
-        }).addOnFailureListener(e -> {
-            callback.onError("Error finding user: " + e.getMessage());
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Error finding user: " + error.getMessage());
+            }
         });
     }
 
+    // === CATEGORY METHODS ===
     public static void fetchAllCategories(CategoryListCallback callback) {
-        db.collection("categories").get().addOnSuccessListener(querySnapshot -> {
-            List<Map<String, String>> categoryList = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : querySnapshot) {
-                Map<String, String> categoryMap = new HashMap<>();
-                categoryMap.put("Name", doc.getString("Name"));
-                categoryMap.put("Description", doc.getString("Description"));
-                categoryList.add(categoryMap);
+        db.child("categories").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                List<Map<String, String>> categoryList = new ArrayList<>();
+                for (DataSnapshot doc : snapshot.getChildren()) {
+                    Map<String, String> categoryMap = new HashMap<>();
+                    categoryMap.put("Name", doc.child("Name").getValue(String.class));
+                    categoryMap.put("Description", doc.child("Description").getValue(String.class));
+                    categoryList.add(categoryMap);
+                }
+                callback.onCategoryListFetched(categoryList);
             }
-            callback.onCategoryListFetched(categoryList);
-        }).addOnFailureListener(e -> {
-            callback.onError("Failed to load categories: " + e.getMessage());
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Failed to load categories: " + error.getMessage());
+            }
         });
     }
 
     public static void deleteCategory(String name, FirebaseCallback callback) {
-        db.collection("categories").whereEqualTo("Name", name).get()
-                .addOnSuccessListener(querySnapshot -> {
-                    if (!querySnapshot.isEmpty()) {
-                        for (QueryDocumentSnapshot doc : querySnapshot) {
-                            doc.getReference().delete()
-                                    .addOnSuccessListener(aVoid -> callback.onSuccess())
-                                    .addOnFailureListener(e -> callback.onError("Error deleting category: " + e.getMessage()));
-                        }
-                    } else {
-                        callback.onError("No category found with name: " + name);
+        db.child("categories").orderByChild("Name").equalTo(name).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    for (DataSnapshot doc : snapshot.getChildren()) {
+                        doc.getRef().removeValue()
+                                .addOnSuccessListener(aVoid -> callback.onSuccess())
+                                .addOnFailureListener(e -> callback.onError("Error deleting category: " + e.getMessage()));
                     }
-                })
-                .addOnFailureListener(e -> {
-                    callback.onError("Error searching for category: " + e.getMessage());
-                });
+                } else {
+                    callback.onError("No category found with name: " + name);
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Error searching for category: " + error.getMessage());
+            }
+        });
     }
 
     public static void editCategory(String oldName, String newName, String newDescription, FirebaseCallback callback) {
-        db.collection("categories").whereEqualTo("Name", oldName).get()
-                .addOnSuccessListener(querySnapshot -> {
-                    if (!querySnapshot.isEmpty()) {
-                        for (QueryDocumentSnapshot doc : querySnapshot) {
-                            Map<String, Object> updates = new HashMap<>();
-                            updates.put("Name", newName);
-                            updates.put("Description", newDescription);
+        db.child("categories").orderByChild("Name").equalTo(oldName).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    for (DataSnapshot doc : snapshot.getChildren()) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("Name", newName);
+                        updates.put("Description", newDescription);
 
-                            doc.getReference().update(updates)
-                                    .addOnSuccessListener(aVoid -> callback.onSuccess())
-                                    .addOnFailureListener(e -> callback.onError("Update failed: " + e.getMessage()));
-                        }
-                    } else {
-                        callback.onError("Category not found.");
+                        doc.getRef().updateChildren(updates)
+                                .addOnSuccessListener(aVoid -> callback.onSuccess())
+                                .addOnFailureListener(e -> callback.onError("Update failed: " + e.getMessage()));
                     }
-                })
-                .addOnFailureListener(e -> callback.onError("Error finding category: " + e.getMessage()));
+                } else {
+                    callback.onError("Category not found.");
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                callback.onError("Error finding category: " + error.getMessage());
+            }
+        });
     }
 
+    // === INTERFACES ===
     public interface CategoryListCallback {
         void onCategoryListFetched(List<Map<String, String>> categories);
         void onError(String error);

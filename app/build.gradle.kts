@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
-    // Google services Gradle plugin for Firebase integration
-    id("com.google.gms.google-services")
+    alias(libs.plugins.google.services) // Firebase plugin
 }
 
 android {
@@ -35,20 +34,21 @@ android {
 }
 
 dependencies {
-    // Android core libraries
+    // AndroidX core libraries
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.activity)
     implementation(libs.constraintlayout)
 
-    // Use Firebase BoM for consistent version management
-    implementation(platform("com.google.firebase:firebase-bom:33.14.0"))
+    // Firebase BoM for version control
+    implementation(platform("com.google.firebase:firebase-bom:33.16.0"))
 
-    // Firebase SDKs (no explicit versions needed with BoM)
+    // Firebase SDKs
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-database")
+    // Removed firestore because you don’t use Firestore
+
 
     // Testing dependencies
     testImplementation(libs.junit)

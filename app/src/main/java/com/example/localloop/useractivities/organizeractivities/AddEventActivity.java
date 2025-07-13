@@ -1,7 +1,6 @@
 package com.example.localloop.useractivities.organizeractivities;
 
 import android.os.Bundle;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -19,8 +18,6 @@ import java.util.ArrayList;
 
 public class AddEventActivity extends AppCompatActivity {
 
-
-
     private EditText editTextTitle, editTextDescription, editTextLocation, editTextFee;
     private Spinner spinnerCategory;
     private Button buttonAddEvent;
@@ -28,7 +25,7 @@ public class AddEventActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_add_event); // Ensure your XML file is correctly named
+        setContentView(R.layout.activity_add_event);
 
         // Reference UI fields
         editTextTitle = findViewById(R.id.title);
@@ -38,7 +35,7 @@ public class AddEventActivity extends AppCompatActivity {
         spinnerCategory = findViewById(R.id.category);
         buttonAddEvent = findViewById(R.id.buttonAddEvent);
 
-
+        // Set up category spinner
         ArrayList<String> categoryList = new ArrayList<>();
         categoryList.add("Wedding");
         categoryList.add("Music");
@@ -49,6 +46,7 @@ public class AddEventActivity extends AppCompatActivity {
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerCategory.setAdapter(adapter);
 
+        // Handle Add Event button click
         buttonAddEvent.setOnClickListener(v -> addEventToFirebase());
     }
 
@@ -56,43 +54,37 @@ public class AddEventActivity extends AppCompatActivity {
         String title = editTextTitle.getText().toString().trim();
         String description = editTextDescription.getText().toString().trim();
         String location = editTextLocation.getText().toString().trim();
-        double fee = Double.parseDouble(editTextFee.getText().toString().trim());
+        String feeText = editTextFee.getText().toString().trim();
         String category = spinnerCategory.getSelectedItem().toString();
-        String dateAndTime = "2025-07-10 18:00";
+        String dateAndTime = "2025-07-10 18:00"; // Placeholder. Add DatePicker/TimePicker if needed.
         int maxParticipants = 50;
 
-        // Validation
-        if (title.isEmpty() || description.isEmpty() || location.isEmpty()) {
+        // Basic validation
+        if (title.isEmpty() || description.isEmpty() || location.isEmpty() || feeText.isEmpty()) {
             Toast.makeText(this, "Please fill in all required fields.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        double fees;
-        if (fee < 0){
-            fees = 0.0;
-        } else {
-            try {
-                fees = 1;
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "Fee must be a numeric value.", Toast.LENGTH_SHORT).show();
-                return;
-            }
+        double fee;
+        try {
+            fee = Double.parseDouble(feeText);
+            if (fee < 0) fee = 0.0;
+        } catch (NumberFormatException e) {
+            Toast.makeText(this, "Fee must be a valid number.", Toast.LENGTH_SHORT).show();
+            return;
         }
 
-        // Create Event object
+        // Get database reference
         DatabaseReference databaseReference = FirebaseDatabase.getInstance().getReference("events");
         String eventId = databaseReference.push().getKey();
 
-
+        // Create event and save it
         Event event = new Event(title, description, category, dateAndTime, location, maxParticipants, fee, eventId);
-
-
-        // Push to Firebase
         databaseReference.child(eventId).setValue(event)
                 .addOnSuccessListener(aVoid -> {
                     Toast.makeText(this, "Event added successfully!", Toast.LENGTH_SHORT).show();
                     clearFields();
-                    finish(); // Return to dashboard
+                    finish(); // Go back to dashboard
                 })
                 .addOnFailureListener(e -> Toast.makeText(this, "Failed to add event. Try again.", Toast.LENGTH_SHORT).show());
     }
@@ -104,8 +96,4 @@ public class AddEventActivity extends AppCompatActivity {
         editTextFee.setText("");
         spinnerCategory.setSelection(0);
     }
-    }
-
-
-
-
+}

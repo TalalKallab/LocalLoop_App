@@ -16,22 +16,24 @@ import com.example.localloop.entities.User;
 import com.example.localloop.helpers.Firebase;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.*;
 
 public class LoginActivity extends AppCompatActivity {
     private EditText emailInput, passwordInput;
     private FirebaseAuth mAuth = Firebase.getAuth();
+    private DatabaseReference usersRef;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_login);
 
-        mAuth = FirebaseAuth.getInstance();
-
         emailInput = findViewById(R.id.editTextEmailLogin);
         passwordInput = findViewById(R.id.editTextPasswordLogin);
         Button loginButton = findViewById(R.id.buttonLogin);
         Button createAccountButton = findViewById(R.id.buttonCreateAccount);
+
+        usersRef = com.google.firebase.database.FirebaseDatabase.getInstance().getReference("users");
 
         loginButton.setOnClickListener(v -> loginUser());
         createAccountButton.setOnClickListener(v -> {
@@ -47,56 +49,61 @@ public class LoginActivity extends AppCompatActivity {
         if (email.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please enter your credentials.", Toast.LENGTH_SHORT).show();
             return;
-        } else if (email.equals("admin") && (password.equals("XPI76SZUqyCjVxgnUjm0") || password.equals("1"))) {
+        }
+
+        if (email.equals("admin") && (password.equals("XPI76SZUqyCjVxgnUjm0") || password.equals("1"))) {
             Toast.makeText(this, "Admin login successful!", Toast.LENGTH_SHORT).show();
             Admin admin = new Admin("Admin", "admin");
             createWelcomeMessageIntent(admin);
             return;
-        } else {
-            mAuth.signInWithEmailAndPassword(email, password).addOnCompleteListener(task -> {
-                if (task.isSuccessful()) {
-                    Toast.makeText(this, "Login successful!", Toast.LENGTH_SHORT).show();
-                    FirebaseUser user = mAuth.getCurrentUser();
-
-                    if (user != null) {
-                        Firebase.fetchUserByEmail(user.getEmail(), new Firebase.UserFetchCallback() {
-                            @Override
-                            public void onSuccess(User user1) {
-                                // 🚩 NEW: Check if the user is disabled before proceeding
-                                Firebase.getDb().collection("users")
-                                        .whereEqualTo("Email", user.getEmail())
-                                        .get()
-                                        .addOnSuccessListener(querySnapshot -> {
-                                            if (!querySnapshot.isEmpty()) {
-                                                Boolean disabled = querySnapshot.getDocuments().get(0).getBoolean("disabled");
-                                                if (disabled != null && disabled) {
-                                                    Toast.makeText(LoginActivity.this, "Your account has been disabled.", Toast.LENGTH_LONG).show();
-                                                    mAuth.signOut(); // optional: sign out the user immediately
-                                                } else {
-                                                    createWelcomeMessageIntent(user1);
-                                                }
-                                            } else {
-                                                Toast.makeText(LoginActivity.this, "User data not found.", Toast.LENGTH_SHORT).show();
-                                            }
-                                        })
-                                        .addOnFailureListener(e -> Toast.makeText(LoginActivity.this, "Error checking account status: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-                            }
-
-                            @Override
-                            public void onError(String errorMessage) {
-                                Toast.makeText(LoginActivity.this, errorMessage, Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    }
-
-                } else {
-                    Toast.makeText(this, "Invalid email or password", Toast.LENGTH_SHORT).show();
-                }
-            });
         }
+
+        mAuth.signInWithEmailAndPassword(email, password).addOnCompleteListener(task -> {
+            if (task.isSuccessful()) {
+                FirebaseUser user = mAuth.getCurrentUser();
+                if (user != null) {
+                    Firebase.fetchUserByEmail(user.getEmail(), new Firebase.UserFetchCallback() {
+                        @Override
+                        public void onSuccess(User userObj) {
+                            usersRef.orderByChild("Email").equalTo(email).addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override
+                                public void onDataChange(DataSnapshot snapshot) {
+                                    if (snapshot.exists()) {
+                                        for (DataSnapshot child : snapshot.getChildren()) {
+                                            Boolean disabled = child.child("disabled").getValue(Boolean.class);
+                                            if (disabled != null && disabled) {
+                                                Toast.makeText(LoginActivity.this, "Your account has been disabled.", Toast.LENGTH_LONG).show();
+                                                mAuth.signOut();
+                                            } else {
+                                                createWelcomeMessageIntent(userObj);
+                                            }
+                                            break;
+                                        }
+                                    } else {
+                                        Toast.makeText(LoginActivity.this, "User data not found.", Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+
+                                @Override
+                                public void onCancelled(DatabaseError error) {
+                                    Toast.makeText(LoginActivity.this, "Error checking account: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onError(String errorMessage) {
+                            Toast.makeText(LoginActivity.this, errorMessage, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            } else {
+                Toast.makeText(this, "Invalid email or password", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
-    public void createWelcomeMessageIntent(User user) {
+    private void createWelcomeMessageIntent(User user) {
         Intent intent;
         String welcomeMessage = "Welcome " + user.getName() + "! You are logged in as a " + user.getRole() + ".";
 
@@ -104,10 +111,8 @@ public class LoginActivity extends AppCompatActivity {
             intent = new Intent(this, com.example.localloop.useractivities.organizeractivities.Home.class);
         } else if (user instanceof Participant) {
             intent = new Intent(this, com.example.localloop.useractivities.participantactivities.Home.class);
-        } else if (user instanceof Admin) {
-            intent = new Intent(this, com.example.localloop.useractivities.adminactivities.Home.class);
         } else {
-            return;
+            intent = new Intent(this, com.example.localloop.useractivities.adminactivities.Home.class);
         }
 
         intent.putExtra("welcomeMessage", welcomeMessage);

@@ -23,8 +23,12 @@
         <activity android:name=".useractivities.adminactivities.Home" android:exported="true" />
         <activity android:name=".useractivities.adminactivities.manageeventcategories.ManageCategoriesActivity" android:exported="true" />
         <activity android:name=".useractivities.adminactivities.manageeventcategories.addcategory.AddCategoryActivity" android:exported="true" />
-        <activity android:name=".WelcomeActivity" android:exported="true" />
+        <!-- <activity android:name=".WelcomeActivity" android:exported="true" /> -->
+
         <activity android:name=".loginactivities.RegisterActivity" android:exported="true" />
+        <activity android:name=".useractivities.organizeractivities.AddEventActivity" android:exported="true" />
+
+
         <activity
             android:name=".loginactivities.LoginActivity"
             android:exported="true">

@@ -1,20 +1,31 @@
 package com.example.localloop.entities;
 
-public class User {
-    protected String name;
-    protected String role;
+public abstract class User {
+    private String name;
+    private String role;
 
-    // Constructor for the user class, it is invoked upon a successful login
+    public User() {
+        // Required for Firebase Realtime DB deserialization
+    }
+
     public User(String name, String role) {
         this.name = name;
         this.role = role;
     }
 
-    // Getters
     public String getName() {
         return name;
     }
+
     public String getRole() {
         return role;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 }

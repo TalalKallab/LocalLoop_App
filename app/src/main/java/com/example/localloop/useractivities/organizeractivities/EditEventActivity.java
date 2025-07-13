@@ -1,6 +1,5 @@
 package com.example.localloop.useractivities.organizeractivities;
 
-import android.content.DialogInterface;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
@@ -11,33 +10,22 @@ import android.widget.Spinner;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.example.localloop.R;
 import com.example.localloop.Event;
+import com.example.localloop.R;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
-import com.google.firebase.database.ValueEventListener;
-
-import java.util.ArrayList;
 
 public class EditEventActivity extends AppCompatActivity {
 
-    // Declare EditTexts, Spinner, Button variables
-    private EditText editTextTitle;
-    private EditText editTextDescription;
-    private EditText editTextLocation;
-    private EditText editTextFee;
-    private EditText editTextDateAndTime;
-    private Spinner spinnerCategory;
-    private Button buttonUpdateEvent;
-    private Button buttonDeleteEvent;
+    private EditText titleInput, descriptionInput, locationInput, feeInput, dateInput;
+    private Spinner categorySpinner;
+    private Button updateBtn, deleteBtn;
 
     private DatabaseReference eventsRef;
-    private DatabaseReference categoriesRef;
     private String eventId;
     private Event currentEvent;
 
@@ -46,154 +34,95 @@ public class EditEventActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit_event);
 
-        // Initialize views
-        editTextTitle = findViewById(R.id.title);
-        editTextDescription = findViewById(R.id.description);
-        editTextLocation = findViewById(R.id.location);
-        editTextFee = findViewById(R.id.fee);
-        editTextDateAndTime = findViewById(R.id.dateAndTime);
-        spinnerCategory = findViewById(R.id.category);
-        buttonUpdateEvent = findViewById(R.id.updateEvent);
-        buttonDeleteEvent = findViewById(R.id.deleteEvent);
+        titleInput = findViewById(R.id.title);
+        descriptionInput = findViewById(R.id.description);
+        locationInput = findViewById(R.id.location);
+        feeInput = findViewById(R.id.fee);
+        dateInput = findViewById(R.id.dateAndTime);
+        categorySpinner = findViewById(R.id.category);
+        updateBtn = findViewById(R.id.updateEvent);
+        deleteBtn = findViewById(R.id.deleteEvent);
 
-        // Initialize Firebase references
-        eventsRef = FirebaseDatabase.getInstance().getReference("events");
-        categoriesRef = FirebaseDatabase.getInstance().getReference("categories");
+        // Example categories
+        String[] categories = {"Wedding", "Conference", "Seminar", "Birthday"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, categories);
+        categorySpinner.setAdapter(adapter);
 
-        // Get eventId from Intent
         eventId = getIntent().getStringExtra("eventId");
+        if (eventId == null) {
+            Toast.makeText(this, "Missing Event ID", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
 
-        // Populate category spinner
-        loadCategoriesIntoSpinner();
+        eventsRef = FirebaseDatabase.getInstance().getReference("events");
 
-        // Fetch event details and pre-fill fields
-        fetchEventDetails();
+        fetchEvent();
 
-        // Update Event button listener
-        buttonUpdateEvent.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (validateInputs()) {
-                    updateEventInFirebase();
-                }
+        updateBtn.setOnClickListener(v -> {
+            if (validateFields()) {
+                updateEvent();
             }
         });
 
-        // Delete Event button listener
-        buttonDeleteEvent.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                confirmAndDeleteEvent();
-            }
-        });
+        deleteBtn.setOnClickListener(v -> deleteEvent());
     }
 
-    private void loadCategoriesIntoSpinner() {
-        ArrayList<String> categories = new ArrayList<>();
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, categories);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerCategory.setAdapter(adapter);
-
-        categoriesRef.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot snapshot) {
-                categories.clear();
-                for (DataSnapshot dataSnapshot : snapshot.getChildren()) {
-                    String category = dataSnapshot.getValue(String.class);
-                    categories.add(category);
-                }
-                adapter.notifyDataSetChanged();
-            }
-
-            @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-                Toast.makeText(EditEventActivity.this, "Failed to load categories", Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    private void fetchEventDetails() {
-        eventsRef.child(eventId).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot snapshot) {
+    private void fetchEvent() {
+        eventsRef.child(eventId).get().addOnSuccessListener(snapshot -> {
+            if (snapshot.exists()) {
                 currentEvent = snapshot.getValue(Event.class);
                 if (currentEvent != null) {
-                    editTextTitle.setText(currentEvent.getTitle());
-                    editTextDescription.setText(currentEvent.getDescription());
-                    editTextLocation.setText(currentEvent.getLocation());
-                    editTextFee.setText(String.valueOf(currentEvent.getFee()));
-                    editTextDateAndTime.setText(currentEvent.getDateAndTime());
+                    titleInput.setText(currentEvent.getTitle());
+                    descriptionInput.setText(currentEvent.getDescription());
+                    locationInput.setText(currentEvent.getLocation());
+                    feeInput.setText(String.valueOf(currentEvent.getFee()));
+                    dateInput.setText(currentEvent.getDateAndTime());
 
-                    // Set category in spinner
-                    String eventCategory = currentEvent.getCategory();
-                    ArrayAdapter adapter = (ArrayAdapter) spinnerCategory.getAdapter();
-                    int position = adapter.getPosition(eventCategory);
-                    spinnerCategory.setSelection(position);
+                    String cat = currentEvent.getCategory();
+                    ArrayAdapter adapter = (ArrayAdapter) categorySpinner.getAdapter();
+                    int pos = adapter.getPosition(cat);
+                    categorySpinner.setSelection(pos >= 0 ? pos : 0);
                 }
             }
-
-            @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-                Toast.makeText(EditEventActivity.this, "Failed to load event details", Toast.LENGTH_SHORT).show();
-            }
-        });
+        }).addOnFailureListener(e ->
+                Toast.makeText(this, "Error loading event: " + e.getMessage(), Toast.LENGTH_SHORT).show()
+        );
     }
 
-    private boolean validateInputs() {
-        String title = editTextTitle.getText().toString().trim();
-        String description = editTextDescription.getText().toString().trim();
-        String location = editTextLocation.getText().toString().trim();
-        String feeString = editTextFee.getText().toString().trim();
-        String dateAndTime = editTextDateAndTime.getText().toString().trim();
-
-        if (TextUtils.isEmpty(title) || TextUtils.isEmpty(description) || TextUtils.isEmpty(location) || TextUtils.isEmpty(dateAndTime)) {
-            Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
-            return false;
-        }
-
-        try {
-            Double.parseDouble(feeString);
-        } catch (NumberFormatException e) {
-            Toast.makeText(this, "Fee must be a numeric value", Toast.LENGTH_SHORT).show();
-            return false;
-        }
-
-        return true;
+    private boolean validateFields() {
+        return !TextUtils.isEmpty(titleInput.getText()) &&
+                !TextUtils.isEmpty(descriptionInput.getText()) &&
+                !TextUtils.isEmpty(locationInput.getText()) &&
+                !TextUtils.isEmpty(feeInput.getText()) &&
+                !TextUtils.isEmpty(dateInput.getText());
     }
 
-    private void updateEventInFirebase() {
-        String title = editTextTitle.getText().toString().trim();
-        String description = editTextDescription.getText().toString().trim();
-        String location = editTextLocation.getText().toString().trim();
-        double fee = Double.parseDouble(editTextFee.getText().toString().trim());
-        String dateAndTime = editTextDateAndTime.getText().toString().trim();
-        String category = spinnerCategory.getSelectedItem().toString();
+    private void updateEvent() {
+        String title = titleInput.getText().toString().trim();
+        String desc = descriptionInput.getText().toString().trim();
+        String location = locationInput.getText().toString().trim();
+        double fee = Double.parseDouble(feeInput.getText().toString().trim());
+        String date = dateInput.getText().toString().trim();
+        String category = categorySpinner.getSelectedItem().toString();
 
-        Event updatedEvent = new Event(title, description, category, dateAndTime, location, currentEvent.getMAX_PARTICIPANTS(), fee, eventId);
-
-        eventsRef.child(eventId).setValue(updatedEvent)
+        Event updated = new Event(title, desc, category, date, location, currentEvent.getMAX_PARTICIPANTS(), fee, eventId);
+        eventsRef.child(eventId).setValue(updated)
                 .addOnSuccessListener(aVoid -> {
-                    Toast.makeText(EditEventActivity.this, "Event updated successfully", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Event updated!", Toast.LENGTH_SHORT).show();
                     finish();
                 })
-                .addOnFailureListener(e -> Toast.makeText(EditEventActivity.this, "Failed to update event", Toast.LENGTH_SHORT).show());
-    }
-
-    private void confirmAndDeleteEvent() {
-        new AlertDialog.Builder(this)
-                .setTitle("Delete Event")
-                .setMessage("Are you sure you want to delete this event?")
-                .setPositiveButton("Yes", (dialog, which) -> deleteEvent())
-                .setNegativeButton("No", null)
-                .show();
+                .addOnFailureListener(e ->
+                        Toast.makeText(this, "Update failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
     }
 
     private void deleteEvent() {
         eventsRef.child(eventId).removeValue()
                 .addOnSuccessListener(aVoid -> {
-                    Toast.makeText(EditEventActivity.this, "Event deleted successfully", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Event deleted.", Toast.LENGTH_SHORT).show();
                     finish();
                 })
-                .addOnFailureListener(e -> Toast.makeText(EditEventActivity.this, "Failed to delete event", Toast.LENGTH_SHORT).show());
+                .addOnFailureListener(e ->
+                        Toast.makeText(this, "Delete failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
     }
 }
